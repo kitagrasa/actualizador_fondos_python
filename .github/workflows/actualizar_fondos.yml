@@ -1,0 +1,65 @@
+name: Actualizar Precios Fondos
+
+on:
+  schedule:
+    - cron: '*/15 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  update-all:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements.txt
+
+      - name: Update from Fundsquare
+        run: python scripts/update_fundsquare.py
+        continue-on-error: true
+
+      - name: Update from Financial Times
+        run: python scripts/update_ft.py
+        continue-on-error: true
+
+      - name: Generate JSON files
+        run: python scripts/generate_json.py
+
+      - name: Check health status
+        run: python scripts/health_check.py
+        continue-on-error: true
+
+      - name: Commit and push all changes
+        run: |
+          git config --local user.name 'github-actions[bot]'
+          git config --local user.email 'github-actions[bot]@users.noreply.github.com'
+          git pull --rebase origin main || true
+          git add -A
+          if git diff --staged --quiet; then
+            echo "No hay cambios para commitear"
+          else
+            git commit -m "Actualizar precios $(date -u +'%Y-%m-%d %H:%M:%S UTC')"
+            git push || (git pull --rebase origin main && git push)
+          fi
+
+      - name: Fail if data is stale
+        run: |
+          if [ -f data/health_alert_needed.flag ]; then
+            echo "❌ Datos obsoletos (>20h)"
+            exit 1
+          else
+            echo "✅ Todo OK"
+          fi

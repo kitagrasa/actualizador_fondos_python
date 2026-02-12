@@ -1,6 +1,5 @@
 """
-Actualización desde Financial Times
-Descarga TODO el histórico disponible de la tabla HTML
+Actualización desde Financial Times - Extrae tabla HTML
 """
 import sys
 import time
@@ -13,73 +12,92 @@ from config import FUNDS, DATA_DIR
 from utils import upsert_day, update_index, save_health_status
 
 def parse_ft_date(text):
-    """Convierte fecha de Financial Times a formato YYYY-MM-DD"""
+    """Convierte fecha de FT 'Tuesday, February 10, 2026' a YYYY-MM-DD"""
     try:
-        # Formato típico: "Tue, Jan 28, 2026" o "Tuesday, January 28, 2026"
-        match = re.search(r'([A-Za-z]{3,}),?\s+([A-Za-z]{3,})\s+(\d{1,2}),?\s+(\d{4})', text)
+        # Limpiar texto
+        clean_text = text.strip()
+        
+        # Extraer fecha con regex: "Tuesday, February 10, 2026"
+        match = re.search(r'([A-Za-z]{3,}day),?\s+([A-Za-z]{3,})\s+(\d{1,2}),?\s+(\d{4})', clean_text)
         if match:
-            date_str = f"{match.group(2)} {match.group(3)}, {match.group(4)}"
-            dt = datetime.strptime(date_str, "%b %d, %Y")
-            return dt.strftime('%Y-%m-%d')
+            month_str = match.group(2)
+            day_str = match.group(3)
+            year_str = match.group(4)
+            
+            # Convertir mes abreviado
+            date_str = f"{month_str} {day_str}, {year_str}"
+            
+            # Intentar con mes completo
+            try:
+                dt = datetime.strptime(date_str, "%B %d, %Y")
+                return dt.strftime('%Y-%m-%d')
+            except:
+                # Intentar con mes abreviado
+                dt = datetime.strptime(date_str, "%b %d, %Y")
+                return dt.strftime('%Y-%m-%d')
     except Exception as e:
-        print(f"Error parsing date '{text}': {e}")
+        print(f"[FT] Error parsing date '{text}': {e}")
     return None
 
-def parse_ft_number(text):
-    """Convierte texto a número decimal"""
+def parse_ft_price(text):
+    """Extrae precio decimal de texto como '780.94'"""
     try:
-        clean = text.strip().replace(' ', '').replace(',', '')
+        clean = text.strip().replace(',', '').replace(' ', '')
         value = float(clean)
         return value if value > 0 else None
     except:
         return None
 
 def extract_ft_data(html):
-    """Extrae TODOS los datos de precios de la tabla HTML de Financial Times"""
+    """Extrae TODOS los precios de la tabla HTML de FT"""
     try:
         soup = BeautifulSoup(html, 'html.parser')
         
-        # Buscar la tabla de precios históricos
-        table = soup.find('table', class_=lambda x: x and 'mod-tearsheet-historical-prices__results' in x)
+        # Buscar tabla con class 'mod-tearsheet-historical-prices__results'
+        table = soup.find('table', class_='mod-tearsheet-historical-prices__results')
         
         if not table:
+            print("[FT] No historical prices table found")
             return []
         
         tbody = table.find('tbody')
         if not tbody:
+            print("[FT] No tbody found in table")
             return []
         
         rows = []
         for tr in tbody.find_all('tr'):
             tds = tr.find_all('td')
+            
             if len(tds) < 5:
                 continue
             
-            # Columna 0: Fecha, Columna 4: Precio de cierre
-            date_text = tds[0].get_text(strip=True)
-            close_text = tds[4].get_text(strip=True)
+            # Columna 0: Fecha (formato largo o corto)
+            # Columna 4: Close price
+            date_cell = tds[0]
+            close_cell = tds[4]
+            
+            # La fecha puede estar en <span> para mostrar diferente en mobile/desktop
+            date_text = date_cell.get_text(strip=True)
+            close_text = close_cell.get_text(strip=True)
             
             date = parse_ft_date(date_text)
-            close = parse_ft_number(close_text)
+            close = parse_ft_price(close_text)
             
             if date and close:
                 rows.append({'date': date, 'close': close})
         
-        # Eliminar duplicados (mantener el último precio por fecha)
-        seen = {}
-        for row in rows:
-            seen[row['date']] = row['close']
-        
-        result = [{'date': k, 'close': v} for k, v in seen.items()]
-        print(f"[FT] Extracted {len(result)} historical prices from HTML")
-        return result
+        print(f"[FT] Extracted {len(rows)} historical prices from table")
+        return rows
         
     except Exception as e:
-        print(f"Error extracting FT data: {e}")
+        print(f"[FT] Error extracting data: {e}")
+        import traceback
+        traceback.print_exc()
         return []
 
 def update_from_ft(fund):
-    """Actualiza TODOS los precios históricos desde Financial Times"""
+    """Actualiza TODOS los precios históricos desde FT"""
     isin = fund['isin']
     ft_code = fund['ft']
     url = f"https://markets.ft.com/data/funds/tearsheet/historical?s={ft_code}"
@@ -88,8 +106,11 @@ def update_from_ft(fund):
         print(f"[FT] Fetching ALL historical data for {isin}...")
         
         headers = {
-            'accept': 'text/html,application/xhtml+xml',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'
+            'accept': 'text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8',
+            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/121.0.0.0 Safari/537.36',
+            'accept-language': 'en-US,en;q=0.9',
+            'accept-encoding': 'gzip, deflate, br',
+            'cache-control': 'no-cache',
         }
         
         response = requests.get(url, headers=headers, timeout=30)
@@ -102,7 +123,7 @@ def update_from_ft(fund):
             print(f"[FT] No data extracted for {isin}")
             return {'success': False, 'error': 'No data extracted'}
         
-        # Procesar TODOS los precios (no solo el último)
+        # Procesar TODOS los precios
         rows.sort(key=lambda x: x['date'], reverse=True)
         
         updated = 0
@@ -141,13 +162,15 @@ def update_from_ft(fund):
         return {'success': False, 'error': str(e)}
     except Exception as e:
         print(f"[FT] Error fetching {isin}: {e}")
+        import traceback
+        traceback.print_exc()
         return {'success': False, 'error': str(e)}
 
 def main():
     """Función principal"""
     print("=== Financial Times Update Started ===")
     print(f"Time: {datetime.now().isoformat()}")
-    print("Mode: Downloading ALL available historical data")
+    print("Mode: Downloading ALL available historical data from HTML table")
     
     success_count = 0
     total_updated = 0
@@ -159,7 +182,7 @@ def main():
             success_count += 1
             total_updated += result.get('updated', 0)
             total_new_dates += result.get('new_dates', 0)
-        time.sleep(2)  # Pausa entre requests para no sobrecargar el servidor
+        time.sleep(2)  # Pausa entre requests
     
     save_health_status('ft', success_count, len(FUNDS))
     

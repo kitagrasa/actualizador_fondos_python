@@ -1,129 +1,114 @@
+#!/usr/bin/env python3
 """
-Utilidades comunes para todos los scripts
+UTILIDADES v2.0 UNIFICADA - 1 ARCHIVO POR ISIN
+Feb 2026 - Arquitectura optimizada
 """
 import json
+import shutil
 from datetime import datetime
 from pathlib import Path
+from typing import Dict, List
 
-from config import DATA_DIR, SOURCE_PRIORITY, KEEP_DAYS
+DATA_DIR = Path("data")
+JSON_DIR = Path("json")
+KEEP_DAYS = 2920  # 8 años trading
+SOURCE_PRIORITY = {"ft": 20, "fundsquare": 10, "unknown": 0}
 
-def read_json(filepath):
-    """Lee archivo JSON de forma segura"""
+# Tus 7 fondos (actualiza nombres si necesario)
+FUNDS = [
+    {"isin": "LU0223332320", "name": "KONWAVE Gold Equity Fund B EUR Hedged Cap"},
+    {"isin": "LU0524465548", "name": "Amundi Gold Hedged Cap"},
+    {"isin": "LU1598720172", "name": "Lyxor Gold Bullion Securities"},
+    {"isin": "IE00B3CNHG25", "name": "WisdomTree Gold"},
+    {"isin": "IE00B579F325", "name": "iShares Physical Gold ETC"},
+    {"isin": "LU0252633754", "name": "Xetra-Gold"},
+    {"isin": "DE000A0S9GB0", "name": "EUWAX Gold II"}
+]
+
+def read_json(filepath: Path) -> Dict:
+    filepath = Path(filepath)
     try:
-        filepath = Path(filepath)
         if filepath.exists():
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
     except Exception as e:
-        print(f"Error leyendo {filepath}: {e}")
+        print(f"⚠️ Error {filepath}: {e}")
     return {}
 
-def write_json(filepath, data):
-    """Escribe archivo JSON con encoding UTF-8"""
+def write_json(filepath: Path, data: Dict):
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
+    if filepath.exists():
+        backup = filepath.with_suffix('.json.bak')
+        shutil.copy2(filepath, backup)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
+    print(f"💾 {filepath.name}: {len(data.get('prices', {}))} días")
 
-def upsert_day(isin, date, value):
-    """
-    Inserta o actualiza datos de un día
-    Respeta prioridades: FT (20) > Fundsquare (10)
-    """
-    day_file = DATA_DIR / isin / f"{date}.json"
-    prev = read_json(day_file)
+def read_isin_file(isin: str) -> Dict:
+    return read_json(DATA_DIR / f"{isin}.json")
+
+def upsert_price(isin: str, date: str, value: Dict) -> Dict:
+    """Upsert inteligente con prioridades"""
+    isin_file = DATA_DIR / f"{isin}.json"
+    data = read_isin_file(isin)
     
     new_close = float(value.get('close', 0))
-    if not (new_close > 0):
+    if new_close <= 0:
         return {'changed': False, 'inserted_new_date': False}
     
-    # Verificar prioridad de fuente
-    if prev.get('date'):
-        prev_close = float(prev.get('close', 0))
-        prev_priority = SOURCE_PRIORITY.get(prev.get('src'), 0)
+    existing = data.get('prices', {}).get(date)
+    if existing:
+        existing_close = float(existing.get('close', 0))
+        existing_priority = SOURCE_PRIORITY.get(existing.get('src'), 0)
         new_priority = SOURCE_PRIORITY.get(value.get('src'), 0)
         
-        # No sobrescribir si la nueva fuente tiene menor prioridad
-        if new_priority < prev_priority:
+        if new_priority < existing_priority:
             return {'changed': False, 'inserted_new_date': False}
-        
-        # No cambiar si es el mismo precio y misma prioridad
-        if prev_close == new_close and prev_priority == new_priority:
+        if existing_close == new_close and new_priority == existing_priority:
             return {'changed': False, 'inserted_new_date': False}
     
-    # Guardar datos
+    if 'prices' not in data:
+        data['prices'] = {}
+    
     now_ms = int(datetime.now().timestamp() * 1000)
-    data = {
-        'date': date,
+    data['prices'][date] = {
         'close': new_close,
         'src': value.get('src', 'unknown'),
         'ms': value.get('ms'),
-        'saved_at': prev.get('saved_at', now_ms),
-        'updated_at': now_ms,
-        'prev_src': prev.get('src'),
-        'prev_close': prev.get('close')
+        'updated_at': now_ms
     }
     
-    write_json(day_file, data)
-    return {'changed': True, 'inserted_new_date': not bool(prev.get('date'))}
+    data.setdefault('isin', isin)
+    data['name'] = next((f['name'] for f in FUNDS if f['isin'] == isin), 'Unknown')
+    data['dates'] = sorted(data['prices'].keys())
+    data['total_days'] = len(data['dates'])
+    data['last_updated'] = now_ms
+    
+    # Rotación 8 años
+    if len(data['dates']) > KEEP_DAYS:
+        old_dates = data['dates'][:-KEEP_DAYS]
+        for old_date in old_dates:
+            del data['prices'][old_date]
+        data['dates'] = data['dates'][-KEEP_DAYS:]
+    
+    write_json(isin_file, data)
+    return {'changed': True, 'inserted_new_date': existing is None}
 
-def update_index(isin, date):
-    """Actualiza índice de fechas para un ISIN (mantiene últimos KEEP_DAYS)"""
-    idx_file = DATA_DIR / f"idx_{isin}.json"
-    idx = read_json(idx_file)
-    
-    dates = idx.get('dates', [])
-    if date not in dates:
-        dates.append(date)
-        dates.sort()
-        
-        # Mantener solo los últimos KEEP_DAYS
-        if len(dates) > KEEP_DAYS:
-            dates = dates[-KEEP_DAYS:]
-        
-        write_json(idx_file, {'dates': dates})
+def update_global_index():
+    """Dashboard global"""
+    global_index = {}
+    for isin_file in DATA_DIR.glob("*.json"):
+        if isin_file.stem in ['health', 'all-index']:
+            continue
+        data = read_isin_file(isin_file.stem)
+        if data.get('dates'):
+            global_index[isin_file.stem] = {
+                'total_days': len(data['dates']),
+                'last_date': data['dates'][-1],
+                'name': data.get('name', '?')
+            }
+    write_json(DATA_DIR / 'all-index.json', global_index)
+    print(f"📊 Global: {len(global_index)} fondos")
 
-def get_madrid_date(timestamp_ms):
-    """
-    Convierte timestamp en milisegundos a fecha en zona horaria Madrid
-    Incluye fallback a UTC si pytz falla
-    """
-    try:
-        import pytz
-        from datetime import timezone
-        
-        dt = datetime.fromtimestamp(timestamp_ms / 1000, tz=timezone.utc)
-        madrid_tz = pytz.timezone('Europe/Madrid')
-        madrid_dt = dt.astimezone(madrid_tz)
-        return madrid_dt.strftime('%Y-%m-%d')
-    except Exception as e:
-        print(f"Error convirtiendo fecha: {e}")
-        # Fallback a UTC
-        dt = datetime.fromtimestamp(timestamp_ms / 1000)
-        return dt.strftime('%Y-%m-%d')
-
-def save_health_status(source, success_count, total_funds):
-    """Actualiza el archivo de estado de salud con información de la fuente"""
-    health_file = DATA_DIR / 'health.json'
-    health = read_json(health_file)
-    
-    now_ms = int(datetime.now().timestamp() * 1000)
-    now_iso = datetime.now().isoformat()
-    
-    # Actualizar última ejecución de la fuente específica
-    health[f'last_{source}'] = {
-        'timestamp': now_ms,
-        'iso': now_iso,
-        'success_count': success_count,
-        'total_funds': total_funds
-    }
-    
-    # Actualizar last_ok solo si hubo éxito
-    if success_count > 0:
-        health['last_ok'] = {
-            'timestamp': now_ms,
-            'iso': now_iso,
-            'source': source
-        }
-    
-    write_json(health_file, health)
+def 

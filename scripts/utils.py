@@ -1,62 +1,63 @@
 #!/usr/bin/env python3
 """
-UTILIDADES v2.0 UNIFICADA - 1 ARCHIVO POR ISIN
-Feb 2026 - Arquitectura optimizada
+UTILIDADES UNIFICADAS v2.0 - 1 ARCHIVO POR ISIN
+Datos frescos Febrero 2026 - Arquitectura optimizada
 """
 import json
 import shutil
 from datetime import datetime
 from pathlib import Path
-from typing import Dict, List
+from typing import Dict, List, Any
 
 DATA_DIR = Path("data")
 JSON_DIR = Path("json")
 KEEP_DAYS = 2920  # 8 años trading
-SOURCE_PRIORITY = {"ft": 20, "fundsquare": 10, "unknown": 0}
+SOURCE_PRIORITY = {"ft": 20, "fundsquare": 10}
 
-# Tus 7 fondos (actualiza nombres si necesario)
+# Tus 7 fondos (actualiza nombres si cambian)
 FUNDS = [
     {"isin": "LU0223332320", "name": "KONWAVE Gold Equity Fund B EUR Hedged Cap"},
-    {"isin": "LU0524465548", "name": "Amundi Gold Hedged Cap"},
-    {"isin": "LU1598720172", "name": "Lyxor Gold Bullion Securities"},
-    {"isin": "IE00B3CNHG25", "name": "WisdomTree Gold"},
-    {"isin": "IE00B579F325", "name": "iShares Physical Gold ETC"},
-    {"isin": "LU0252633754", "name": "Xetra-Gold"},
-    {"isin": "DE000A0S9GB0", "name": "EUWAX Gold II"}
+    {"isin": "LU0524465548", "name": "KONWAVE Gold Equity Fund A USD Cap"},
+    {"isin": "LU1234567890", "name": "Tu otro fondo..."},
+    # Agrega los otros 4 ISINs aquí
 ]
 
-def read_json(filepath: Path) -> Dict:
+def read_json(filepath: Path) -> Dict[str, Any]:
+    """Lectura robusta JSON"""
     filepath = Path(filepath)
     try:
         if filepath.exists():
             with open(filepath, 'r', encoding='utf-8') as f:
                 return json.load(f)
     except Exception as e:
-        print(f"⚠️ Error {filepath}: {e}")
+        print(f"⚠️ Error leyendo {filepath}: {e}")
     return {}
 
-def write_json(filepath: Path, data: Dict):
+def write_json(filepath: Path, data: Dict[str, Any]):
+    """Escritura con backup automático"""
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
+    
     if filepath.exists():
         backup = filepath.with_suffix('.json.bak')
         shutil.copy2(filepath, backup)
+    
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
-    print(f"💾 {filepath.name}: {len(data.get('prices', {}))} días")
+    
+    days = len(data.get('prices', {}))
+    print(f"💾 {filepath.name}: {days} días")
 
-def read_isin_file(isin: str) -> Dict:
-    return read_json(DATA_DIR / f"{isin}.json")
-
-def upsert_price(isin: str, date: str, value: Dict) -> Dict:
-    """Upsert inteligente con prioridades"""
+def upsert_price(isin: str, date: str, value: Dict[str, Any]) -> Dict[str, bool]:
+    """Upsert inteligente con prioridades FT > Fundsquare"""
     isin_file = DATA_DIR / f"{isin}.json"
-    data = read_isin_file(isin)
+    data = read_json(isin_file)
     
     new_close = float(value.get('close', 0))
     if new_close <= 0:
         return {'changed': False, 'inserted_new_date': False}
     
+    # Verificar prioridad y duplicados
     existing = data.get('prices', {}).get(date)
     if existing:
         existing_close = float(existing.get('close', 0))
@@ -68,6 +69,7 @@ def upsert_price(isin: str, date: str, value: Dict) -> Dict:
         if existing_close == new_close and new_priority == existing_priority:
             return {'changed': False, 'inserted_new_date': False}
     
+    # Insertar/actualizar
     if 'prices' not in data:
         data['prices'] = {}
     
@@ -75,40 +77,65 @@ def upsert_price(isin: str, date: str, value: Dict) -> Dict:
     data['prices'][date] = {
         'close': new_close,
         'src': value.get('src', 'unknown'),
-        'ms': value.get('ms'),
+        'ms': value.get('ms', now_ms),
         'updated_at': now_ms
     }
     
-    data.setdefault('isin', isin)
-    data['name'] = next((f['name'] for f in FUNDS if f['isin'] == isin), 'Unknown')
+    # Metadatos
+    data['isin'] = isin
+    data['name'] = next((f['name'] for f in FUNDS if f['isin'] == isin), f"ISIN_{isin}")
     data['dates'] = sorted(data['prices'].keys())
     data['total_days'] = len(data['dates'])
     data['last_updated'] = now_ms
     
-    # Rotación 8 años
+    # Rotación automática 8 años
     if len(data['dates']) > KEEP_DAYS:
         old_dates = data['dates'][:-KEEP_DAYS]
         for old_date in old_dates:
             del data['prices'][old_date]
         data['dates'] = data['dates'][-KEEP_DAYS:]
+        print(f"♻️ {isin}: Rotación {len(old_dates)} días antiguos")
     
     write_json(isin_file, data)
     return {'changed': True, 'inserted_new_date': existing is None}
 
 def update_global_index():
-    """Dashboard global"""
-    global_index = {}
+    """Dashboard global todos los fondos"""
+    index = {}
     for isin_file in DATA_DIR.glob("*.json"):
         if isin_file.stem in ['health', 'all-index']:
             continue
-        data = read_isin_file(isin_file.stem)
+        data = read_json(isin_file)
         if data.get('dates'):
-            global_index[isin_file.stem] = {
+            index[isin_file.stem] = {
                 'total_days': len(data['dates']),
                 'last_date': data['dates'][-1],
-                'name': data.get('name', '?')
+                'name': data.get('name', 'Unknown'),
+                'last_close': data['prices'][data['dates'][-1]]['close']
             }
-    write_json(DATA_DIR / 'all-index.json', global_index)
-    print(f"📊 Global: {len(global_index)} fondos")
+    
+    index['summary'] = {
+        'total_funds': len(index),
+        'total_days_across_all': sum(f['total_days'] for f in index.values()),
+        'last_updated': int(datetime.now().timestamp() * 1000)
+    }
+    write_json(DATA_DIR / 'all-index.json', index)
+    print(f"📊 Índice: {len(index)} fondos")
 
-def 
+def save_health_status(source: str, success_count: int, total_funds: int):
+    """Monitoreo health"""
+    health_file = DATA_DIR / 'health.json'
+    health = read_json(health_file)
+    now_ms = int(datetime.now().timestamp() * 1000)
+    
+    health[f'last_{source}'] = {
+        'timestamp': now_ms,
+        'success_count': success_count,
+        'total_funds': total_funds
+    }
+    health['last_ok'] = {
+        'timestamp': now_ms,
+        'source': source,
+        'success_rate': round(success_count / total_funds * 100, 1)
+    }
+    write_json(health_file, health)

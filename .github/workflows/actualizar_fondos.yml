@@ -2,7 +2,7 @@ name: Actualizar Precios Fondos
 
 on:
   schedule:
-    - cron: '*/15 * * * *'
+    - cron: '*/15 * * * *'  # Cada 15 minutos
   workflow_dispatch:
 
 permissions:
@@ -55,11 +55,27 @@ jobs:
             git push || (git pull --rebase origin main && git push)
           fi
 
-      - name: Fail if data is stale
+      - name: Check for critical alerts
+        id: check_alerts
         run: |
           if [ -f data/health_alert_needed.flag ]; then
-            echo "❌ Datos obsoletos (>20h)"
-            exit 1
+            echo "alert=true" >> $GITHUB_OUTPUT
+            cat data/health_alert_needed.flag
           else
-            echo "✅ Todo OK"
+            echo "alert=false" >> $GITHUB_OUTPUT
           fi
+
+      - name: Fail workflow if alerts detected
+        if: steps.check_alerts.outputs.alert == 'true'
+        run: |
+          echo "❌ CRITICAL ALERT: System health check failed"
+          echo ""
+          echo "Review the health check logs above for details."
+          echo ""
+          echo "Possible issues:"
+          echo "  • No updates for >1 hour (system stale)"
+          echo "  • Financial Times failing for >20 hours"
+          echo "  • Fundsquare failing for >20 hours"
+          echo ""
+          echo "Check previous workflow runs for error details."
+          exit 1

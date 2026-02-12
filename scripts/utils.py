@@ -8,7 +8,7 @@ from pathlib import Path
 from config import DATA_DIR, SOURCE_PRIORITY, KEEP_DAYS
 
 def read_json(filepath):
-    """Lee archivo JSON"""
+    """Lee archivo JSON de forma segura"""
     try:
         filepath = Path(filepath)
         if filepath.exists():
@@ -19,14 +19,17 @@ def read_json(filepath):
     return {}
 
 def write_json(filepath, data):
-    """Escribe archivo JSON"""
+    """Escribe archivo JSON con encoding UTF-8"""
     filepath = Path(filepath)
     filepath.parent.mkdir(parents=True, exist_ok=True)
     with open(filepath, 'w', encoding='utf-8') as f:
         json.dump(data, f, indent=2, ensure_ascii=False)
 
 def upsert_day(isin, date, value):
-    """Inserta o actualiza datos de un día"""
+    """
+    Inserta o actualiza datos de un día
+    Respeta prioridades: FT (20) > Fundsquare (10)
+    """
     day_file = DATA_DIR / isin / f"{date}.json"
     prev = read_json(day_file)
     
@@ -65,7 +68,7 @@ def upsert_day(isin, date, value):
     return {'changed': True, 'inserted_new_date': not bool(prev.get('date'))}
 
 def update_index(isin, date):
-    """Actualiza índice de fechas para un ISIN"""
+    """Actualiza índice de fechas para un ISIN (mantiene últimos KEEP_DAYS)"""
     idx_file = DATA_DIR / f"idx_{isin}.json"
     idx = read_json(idx_file)
     
@@ -81,7 +84,10 @@ def update_index(isin, date):
         write_json(idx_file, {'dates': dates})
 
 def get_madrid_date(timestamp_ms):
-    """Convierte timestamp en milisegundos a fecha en zona horaria Madrid"""
+    """
+    Convierte timestamp en milisegundos a fecha en zona horaria Madrid
+    Incluye fallback a UTC si pytz falla
+    """
     try:
         import pytz
         from datetime import timezone
@@ -97,7 +103,7 @@ def get_madrid_date(timestamp_ms):
         return dt.strftime('%Y-%m-%d')
 
 def save_health_status(source, success_count, total_funds):
-    """Actualiza el archivo de estado de salud"""
+    """Actualiza el archivo de estado de salud con información de la fuente"""
     health_file = DATA_DIR / 'health.json'
     health = read_json(health_file)
     
@@ -112,7 +118,7 @@ def save_health_status(source, success_count, total_funds):
         'total_funds': total_funds
     }
     
-    # Actualizar last_ok si hubo éxito
+    # Actualizar last_ok solo si hubo éxito
     if success_count > 0:
         health['last_ok'] = {
             'timestamp': now_ms,

@@ -1,18 +1,18 @@
 {
   "last_fundsquare": {
-    "timestamp": 1770909038293,
-    "iso": "2026-02-12T15:10:38.293745",
+    "timestamp": 1770919841241,
+    "iso": "2026-02-12T18:10:41.241781",
     "success_count": 7,
     "total_funds": 7
   },
   "last_ok": {
-    "timestamp": 1770909055491,
-    "iso": "2026-02-12T15:10:55.491781",
+    "timestamp": 1770919858478,
+    "iso": "2026-02-12T18:10:58.478678",
     "source": "ft"
   },
   "last_ft": {
-    "timestamp": 1770909055491,
-    "iso": "2026-02-12T15:10:55.491781",
+    "timestamp": 1770919858478,
+    "iso": "2026-02-12T18:10:58.478678",
     "success_count": 7,
     "total_funds": 7
   }

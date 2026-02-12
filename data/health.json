@@ -1,0 +1,19 @@
+{
+  "last_fundsquare": {
+    "timestamp": 1770867636749,
+    "iso": "2026-02-12T03:40:36.749404",
+    "success_count": 7,
+    "total_funds": 7
+  },
+  "last_ok": {
+    "timestamp": 1770867636749,
+    "iso": "2026-02-12T03:40:36.749404",
+    "source": "fundsquare"
+  },
+  "last_ft": {
+    "timestamp": 1770867653934,
+    "iso": "2026-02-12T03:40:53.934804",
+    "success_count": 0,
+    "total_funds": 7
+  }
+}

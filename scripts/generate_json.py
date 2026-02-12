@@ -1,67 +1,29 @@
+#!/usr/bin/env python3
 """
-Genera archivos JSON para Portfolio Performance
-Incluye todos los precios históricos almacenados
+Genera JSON Portfolio Performance desde data unificada
 """
-from datetime import datetime
 from pathlib import Path
-
-from config import FUNDS, DATA_DIR, JSON_DIR, KEEP_DAYS
-from utils import read_json, write_json
-
-def generate_json_for_fund(fund):
-    """Genera JSON de precios para un fondo específico"""
-    isin = fund['isin']
-    idx_file = DATA_DIR / f"idx_{isin}.json"
-    idx = read_json(idx_file)
-    
-    # Obtener últimos KEEP_DAYS días
-    dates = idx.get('dates', [])[-KEEP_DAYS:]
-    
-    out = []
-    for date in dates:
-        day_file = DATA_DIR / isin / f"{date}.json"
-        day_data = read_json(day_file)
-        
-        close = day_data.get('close')
-        if day_data.get('date') and close is not None:
-            try:
-                close_float = float(close)
-                if close_float > 0:
-                    out.append({
-                        'date': day_data['date'],
-                        'close': close_float
-                    })
-            except (ValueError, TypeError):
-                pass
-    
-    # Ordenar por fecha ascendente
-    out.sort(key=lambda x: x['date'])
-    return out
+import json
+from utils import DATA_DIR, JSON_DIR, read_isin_file, write_json
 
 def main():
-    """Función principal"""
-    print("=== JSON Generation Started ===")
-    print(f"Time: {datetime.now().isoformat()}")
+    JSON_DIR.mkdir(exist_ok=True)
     
-    JSON_DIR.mkdir(parents=True, exist_ok=True)
+    for isin_file in DATA_DIR.glob("*.json"):
+        if isin_file.stem in ['health', 'all-index']:
+            continue
+        
+        data = read_isin_file(isin_file.stem)
+        if data.get('prices'):
+            pp_data = [{'date': date, 'close': info['close']} 
+                      for date, info in data['prices'].items()]
+            pp_data.sort(key=lambda x: x['date'])
+            
+            output_file = JSON_DIR / f"{isin_file.stem}.json"
+            write_json(output_file, pp_data)
+            print(f"✅ {isin_file.stem}: {len(pp_data)} días")
     
-    # Generar JSON individuales por fondo
-    for fund in FUNDS:
-        data = generate_json_for_fund(fund)
-        output_file = JSON_DIR / f"{fund['isin']}.json"
-        write_json(output_file, data)
-        print(f"✓ Generated {fund['isin']}.json ({len(data)} entries)")
-    
-    # Generar JSON consolidado con todos los fondos
-    consolidated = {}
-    for fund in FUNDS:
-        consolidated[fund['isin']] = generate_json_for_fund(fund)
-    
-    consolidated_file = JSON_DIR / 'all-funds.json'
-    write_json(consolidated_file, consolidated)
-    print(f"✓ Generated all-funds.json ({len(FUNDS)} funds)")
-    
-    print("=== JSON Generation Completed ===\n")
+    print("🎉 Portfolio Performance JSON listos")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

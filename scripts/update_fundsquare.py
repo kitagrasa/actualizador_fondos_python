@@ -1,5 +1,6 @@
 """
 Actualización desde Fundsquare
+Descarga todos los precios disponibles y los almacena
 """
 import sys
 from datetime import datetime
@@ -33,33 +34,43 @@ def update_from_fundsquare(fund):
             print(f"[Fundsquare] No EUR data for {isin}")
             return {'success': False, 'error': 'No EUR data'}
         
-        # Obtener el precio más reciente
-        item = max(eur, key=lambda x: float(x.get('dtHrCalcVni', 0)))
+        # Procesar TODOS los precios disponibles (no solo el último)
+        updated = 0
+        new_dates = 0
         
-        ms = float(item.get('dtHrCalcVni', 0))
-        close = float(item.get('pxVniPart', 0))
+        for item in eur:
+            ms = float(item.get('dtHrCalcVni', 0))
+            close = float(item.get('pxVniPart', 0))
+            
+            if not (ms > 0 and close > 0):
+                continue
+            
+            date = get_madrid_date(ms)
+            
+            result = upsert_day(isin, date, {
+                'date': date,
+                'close': close,
+                'src': 'fundsquare',
+                'ms': int(ms)
+            })
+            
+            if result['changed']:
+                updated += 1
+                if result['inserted_new_date']:
+                    new_dates += 1
+                    update_index(isin, date)
         
-        if not (ms > 0 and close > 0):
-            print(f"[Fundsquare] Invalid data for {isin}")
-            return {'success': False, 'error': 'Invalid data'}
-        
-        date = get_madrid_date(ms)
-        
-        result = upsert_day(isin, date, {
-            'date': date,
-            'close': close,
-            'src': 'fundsquare',
-            'ms': int(ms)
-        })
-        
-        if result['changed']:
-            print(f"[Fundsquare] ✓ Updated {isin} {date}: {close}")
-            if result['inserted_new_date']:
-                update_index(isin, date)
+        if updated > 0:
+            print(f"[Fundsquare] ✓ Updated {updated} prices for {isin} ({new_dates} new dates)")
         else:
-            print(f"[Fundsquare] = No change for {isin} {date}")
+            print(f"[Fundsquare] = No changes for {isin} (all {len(eur)} prices already stored)")
         
-        return {'success': True, 'date': date, 'close': close}
+        return {
+            'success': True, 
+            'updated': updated, 
+            'new_dates': new_dates,
+            'total': len(eur)
+        }
         
     except requests.exceptions.Timeout:
         print(f"[Fundsquare] Timeout for {isin}")
@@ -75,18 +86,27 @@ def main():
     """Función principal"""
     print("=== Fundsquare Update Started ===")
     print(f"Time: {datetime.now().isoformat()}")
+    print("Mode: Downloading ALL available historical data")
     
     DATA_DIR.mkdir(parents=True, exist_ok=True)
     
     success_count = 0
+    total_updated = 0
+    total_new_dates = 0
+    
     for fund in FUNDS:
         result = update_from_fundsquare(fund)
         if result['success']:
             success_count += 1
+            total_updated += result.get('updated', 0)
+            total_new_dates += result.get('new_dates', 0)
     
     save_health_status('fundsquare', success_count, len(FUNDS))
     
-    print(f"=== Fundsquare Update Completed ({success_count}/{len(FUNDS)} successful) ===\n")
+    print(f"=== Fundsquare Update Completed ===")
+    print(f"Success: {success_count}/{len(FUNDS)} funds")
+    print(f"Total prices updated: {total_updated}")
+    print(f"New dates added: {total_new_dates}\n")
     
     if success_count == 0:
         print("❌ CRITICAL: No funds were updated from Fundsquare")

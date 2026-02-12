@@ -1,0 +1,37 @@
+name: Keep Repository Active
+
+on:
+  schedule:
+    # Se ejecuta cada 30 días a las 00:00 UTC
+    - cron: '0 0 */30 * *'
+  workflow_dispatch:  # Permite ejecución manual
+
+jobs:
+  keepalive:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+      
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
+      
+      - name: Run Python script
+        run: python update_activity.py
+      
+      - name: Commit and Push
+        run: |
+          git config --global user.name "Keep-Alive Bot"
+          git config --global user.email "actions@github.com"
+          git add README.md
+          if git diff-index --quiet HEAD; then
+            echo "Sin cambios"
+          else
+            git commit -m "🤖 Actualización automática para mantener repositorio activo"
+            git push
+          fi

@@ -1,5 +1,6 @@
 """
 Genera archivos JSON para Portfolio Performance
+Incluye todos los precios históricos almacenados
 """
 from datetime import datetime
 from pathlib import Path
@@ -13,6 +14,7 @@ def generate_json_for_fund(fund):
     idx_file = DATA_DIR / f"idx_{isin}.json"
     idx = read_json(idx_file)
     
+    # Obtener últimos KEEP_DAYS días
     dates = idx.get('dates', [])[-KEEP_DAYS:]
     
     out = []
@@ -32,6 +34,7 @@ def generate_json_for_fund(fund):
             except (ValueError, TypeError):
                 pass
     
+    # Ordenar por fecha ascendente
     out.sort(key=lambda x: x['date'])
     return out
 
@@ -42,12 +45,14 @@ def main():
     
     JSON_DIR.mkdir(parents=True, exist_ok=True)
     
+    # Generar JSON individuales por fondo
     for fund in FUNDS:
         data = generate_json_for_fund(fund)
         output_file = JSON_DIR / f"{fund['isin']}.json"
         write_json(output_file, data)
         print(f"✓ Generated {fund['isin']}.json ({len(data)} entries)")
     
+    # Generar JSON consolidado con todos los fondos
     consolidated = {}
     for fund in FUNDS:
         consolidated[fund['isin']] = generate_json_for_fund(fund)

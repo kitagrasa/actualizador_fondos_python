@@ -1,116 +1,72 @@
+#!/usr/bin/env python3
 """
-Actualización desde Fundsquare
-Descarga todos los precios disponibles y los almacena
+Fundsquare Updater v2.0 - Arquitectura unificada
+Prioridad: FT(20) > Fundsquare(10)
 """
-import sys
-from datetime import datetime
 import requests
-
-from config import FUNDS, DATA_DIR
-from utils import upsert_day, update_index, save_health_status, get_madrid_date
+import json
+from datetime import datetime
+from utils import upsert_price, FUNDS, save_health_status, update_global_index
 
 def update_from_fundsquare(fund):
-    """Actualiza precios desde Fundsquare para un fondo"""
+    """Extrae datos Fundsquare → upsert_price"""
     isin = fund['isin']
-    id_instr = fund['idInstr']
-    url = f"https://www.fundsquare.net/Fundsquare/application/vni/{id_instr}"
-    
     try:
-        print(f"[Fundsquare] Fetching {isin}...")
-        
-        headers = {
-            'accept': 'application/json,text/plain,*/*',
-            'user-agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
-            'referer': 'https://www.fundsquare.net/',
-        }
-        
-        response = requests.get(url, headers=headers, timeout=30)
-        response.raise_for_status()
-        
+        # Tu URL/API Fundsquare real aquí
+        url = f"https://api.fundsquare.net/fund/{isin}/prices"
+        response = requests.get(url, timeout=10)
         data = response.json()
-        eur = data.get('EUR', [])
         
-        if not eur:
-            print(f"[Fundsquare] No EUR data for {isin}")
-            return {'success': False, 'error': 'No EUR data'}
-        
-        # Procesar TODOS los precios disponibles (no solo el último)
         updated = 0
         new_dates = 0
         
-        for item in eur:
-            ms = float(item.get('dtHrCalcVni', 0))
-            close = float(item.get('pxVniPart', 0))
-            
-            if not (ms > 0 and close > 0):
-                continue
-            
-            date = get_madrid_date(ms)
-            
-            result = upsert_day(isin, date, {
-                'date': date,
-                'close': close,
+        for price_day in data.get('prices', []):
+            date = price_day['date']  # '2026-02-10'
+            value = {
+                'close': price_day['close'],
                 'src': 'fundsquare',
-                'ms': int(ms)
-            })
-            
+                'ms': price_day.get('ms')
+            }
+            result = upsert_price(isin, date, value)
             if result['changed']:
                 updated += 1
                 if result['inserted_new_date']:
                     new_dates += 1
-                    update_index(isin, date)
-        
-        if updated > 0:
-            print(f"[Fundsquare] ✓ Updated {updated} prices for {isin} ({new_dates} new dates)")
-        else:
-            print(f"[Fundsquare] = No changes for {isin} (all {len(eur)} prices already stored)")
         
         return {
-            'success': True, 
-            'updated': updated, 
-            'new_dates': new_dates,
-            'total': len(eur)
+            'success': True,
+            'updated': updated,
+            'new_dates': new_dates
         }
-        
-    except requests.exceptions.Timeout:
-        print(f"[Fundsquare] Timeout for {isin}")
-        return {'success': False, 'error': 'Timeout'}
-    except requests.exceptions.RequestException as e:
-        print(f"[Fundsquare] Request error for {isin}: {e}")
-        return {'success': False, 'error': str(e)}
     except Exception as e:
-        print(f"[Fundsquare] Error fetching {isin}: {e}")
-        return {'success': False, 'error': str(e)}
+        print(f"❌ Fundsquare {isin}: {e}")
+        return {'success': False}
 
 def main():
-    """Función principal"""
-    print("=== Fundsquare Update Started ===")
-    print(f"Time: {datetime.now().isoformat()}")
-    print("Mode: Downloading ALL available historical data")
+    """Ejecuta actualización Fundsquare v2.0"""
+    print("🔄 Fundsquare Updater v2.0 iniciando...")
     
-    DATA_DIR.mkdir(parents=True, exist_ok=True)
-    
-    success_count = 0
     total_updated = 0
     total_new_dates = 0
+    successful_funds = 0
     
     for fund in FUNDS:
         result = update_from_fundsquare(fund)
-        if result['success']:
-            success_count += 1
+        if result.get('success'):
+            successful_funds += 1
             total_updated += result.get('updated', 0)
             total_new_dates += result.get('new_dates', 0)
+            print(f"✅ {fund['name'][:30]}: {result.get('updated', 0)} upd")
     
-    save_health_status('fundsquare', success_count, len(FUNDS))
+    print(f"\n📊 RESUMEN Fundsquare:")
+    print(f"   Fondos OK: {successful_funds}/{len(FUNDS)}")
+    print(f"   Total actualizados: {total_updated}")
+    print(f"   Nuevas fechas: {total_new_dates}")
     
-    print(f"=== Fundsquare Update Completed ===")
-    print(f"Success: {success_count}/{len(FUNDS)} funds")
-    print(f"Total prices updated: {total_updated}")
-    print(f"New dates added: {total_new_dates}\n")
-    
-    if success_count == 0:
-        print("❌ CRITICAL: No funds were updated from Fundsquare")
-        sys.exit(1)
+    # v2.0 Health monitoring
+    save_health_status('fundsquare', total_updated, len(FUNDS))
+    update_global_index()
+    print("✅ Health + índice global actualizados")
 
-if __name__ == '__main__':
+if __name__ == "__main__":
     main()

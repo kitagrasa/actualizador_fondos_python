@@ -1,0 +1,17 @@
+{
+  "last_fundsquare": {
+    "timestamp": 1770922393559,
+    "success_count": 0,
+    "total_funds": 3
+  },
+  "last_ok": {
+    "timestamp": 1770922395221,
+    "source": "ft",
+    "success_rate": 0.0
+  },
+  "last_ft": {
+    "timestamp": 1770922395221,
+    "success_count": 0,
+    "total_funds": 3
+  }
+}

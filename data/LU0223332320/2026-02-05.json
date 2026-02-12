@@ -1,10 +1,10 @@
 {
   "date": "2026-02-05",
   "close": 713.16,
-  "src": "fundsquare",
-  "ms": 1770246000000,
+  "src": "ft",
+  "ms": null,
   "saved_at": 1770868377302,
-  "updated_at": 1770868377302,
-  "prev_src": null,
-  "prev_close": null
+  "updated_at": 1770868952622,
+  "prev_src": "fundsquare",
+  "prev_close": 713.16
 }

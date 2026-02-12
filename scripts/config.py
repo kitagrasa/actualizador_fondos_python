@@ -15,7 +15,7 @@ FUNDS = [
 ]
 
 # Configuración de retención
-KEEP_DAYS = 3653  # 10 años
+KEEP_DAYS = 2920  # 8 años (8 × 365 = 2920 días)
 
 # Directorios
 DATA_DIR = Path("./data")
@@ -29,4 +29,5 @@ SOURCE_PRIORITY = {
 }
 
 # Configuración de alertas
-STALE_HOURS = 20  # Alertar si no hay actualizaciones en 20 horas
+STALE_HOURS = 1  # Alertar si no hay actualizaciones en 1 hora
+STALE_WEBSITE_HOURS = 20  # Alertar si una web específica falla durante 20 horas

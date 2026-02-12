@@ -1,33 +1,20 @@
 """
-Configuración central del proyecto
+Configuración centralizada
 """
 from pathlib import Path
 
-# Fondos a actualizar
+DATA_DIR = Path("data")
+JSON_DIR = Path("json")
+KEEP_DAYS = 2920
+
 FUNDS = [
-    {"isin": "LU0563745743", "idInstr": "87217", "ft": "LU0563745743:EUR"},
-    {"isin": "LU0524465548", "idInstr": "159836", "ft": "LU0524465548:EUR"},
-    {"isin": "LU1598720172", "idInstr": "268051", "ft": "LU1598720172:EUR"},
-    {"isin": "LU1372006947", "idInstr": "240088", "ft": "LU1372006947:EUR"},
-    {"isin": "LU1598719752", "idInstr": "268050", "ft": "LU1598719752:EUR"},
-    {"isin": "LU0223332320", "idInstr": "28356", "ft": "LU0223332320:EUR"},
-    {"isin": "LU1832174962", "idInstr": "310815", "ft": "LU1832174962:EUR"},
+    {"isin": "LU0223332320", "name": "KONWAVE Gold Equity Fund B EUR Hedged Cap"},
+    {"isin": "LU0524465548", "name": "Amundi Gold Hedged Cap"},
+    {"isin": "LU1598720172", "name": "Lyxor Gold Bullion Securities"},
+    {"isin": "IE00B3CNHG25", "name": "WisdomTree Gold"},
+    {"isin": "IE00B579F325", "name": "iShares Physical Gold ETC"},
+    {"isin": "LU0252633754", "name": "Xetra-Gold"},
+    {"isin": "DE000A0S9GB0", "name": "EUWAX Gold II"}
 ]
 
-# Configuración de retención
-KEEP_DAYS = 2920  # 8 años (8 × 365 = 2920 días)
-
-# Directorios
-DATA_DIR = Path("./data")
-JSON_DIR = Path("./json")
-
-# Prioridades de fuentes (mayor = más prioritario)
-SOURCE_PRIORITY = {
-    "ft": 20,
-    "fundsquare": 10,
-    "unknown": 0
-}
-
-# Configuración de alertas
-STALE_HOURS = 1  # Alertar si no hay actualizaciones en 1 hora
-STALE_WEBSITE_HOURS = 20  # Alertar si una web específica falla durante 20 horas
+SOURCE_PRIORITY = {"ft": 20, "fundsquare": 10, "unknown": 0}
